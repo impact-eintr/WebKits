@@ -1,9 +1,3 @@
-# WebKits
-常用工具 以及 数据结构
-
-## 令牌桶
-
-```go
 package etbf
 
 import (
@@ -58,6 +52,3 @@ func TestFetchtoken(t *testing.T) {
 	wp.Wait()
 
 }
-
-```
-
