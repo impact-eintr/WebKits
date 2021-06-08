@@ -14,31 +14,33 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 )
 
 const (
-	SIZE = 3
+	SIZE = 5
 )
 
 func TestFetchtoken(t *testing.T) {
 
 	wp := sync.WaitGroup{}
 
-	tbf := Newtbf(10, 100)
-	if tbf == nil {
+	tbf1 := Newtbf(time.Second, 5, 100)
+	if tbf1 == nil {
 		log.Fatalln(errors.New("无法初始化"))
 	}
 
-	file, err := os.Open("./log")
+	file1, err := os.Open("./log1")
 	if err != nil {
 		log.Println(err)
 	}
+	defer file1.Close()
 
-	wp.Add(1)
+	wp.Add(2)
 
 	go func(f io.ReadWriter) {
 		for {
-			size, err := tbf.Fetchtoken(SIZE)
+			size, err := tbf1.Fetchtoken(SIZE)
 			if err != nil {
 				log.Fatalln(err)
 			}
@@ -46,18 +48,48 @@ func TestFetchtoken(t *testing.T) {
 			buf := make([]byte, size)
 			n, err := f.Read(buf)
 			if n == 0 && err == io.EOF {
+				tbf1.Destory()
 				break
 			}
 
-			fmt.Print(string(buf))
+			fmt.Print("1" + string(buf))
 		}
 
 		wp.Done()
-	}(file)
+	}(file1)
+
+	tbf2 := Newtbf(2*time.Second, 10, 100)
+	if tbf2 == nil {
+		log.Fatalln(errors.New("无法初始化"))
+	}
+	file2, err := os.Open("./log2")
+	if err != nil {
+		log.Println(err)
+	}
+	defer file2.Close()
+
+	go func(f io.ReadWriter) {
+		for {
+			size, err := tbf2.Fetchtoken(SIZE)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			buf := make([]byte, size)
+			n, err := f.Read(buf)
+			if n == 0 && err == io.EOF {
+				tbf2.Destory()
+				break
+			}
+
+			fmt.Print("2" + string(buf))
+		}
+
+		wp.Done()
+	}(file2)
 
 	wp.Wait()
 
 }
-
 ```
 

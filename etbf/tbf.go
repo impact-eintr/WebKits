@@ -13,12 +13,14 @@ type TBF interface {
 }
 
 type tbf_st struct {
-	cps   int64
-	burst int64
-	token int64
-	pos   int64
-	mut   sync.Mutex
-	cond  *sync.Cond
+	cps    int64
+	burst  int64
+	token  int64
+	pos    int64
+	mut    sync.Mutex
+	cond   *sync.Cond
+	ticker *time.Ticker
+	Exitch chan struct{}
 }
 
 const (
@@ -30,46 +32,6 @@ var (
 	Mutex = sync.Mutex{}
 )
 
-// 初始化
-func init() {
-	mod_load()
-}
-
-func mod_load() {
-	go handler()
-}
-
-func mod_unload() {
-	for _, tbf := range job {
-		if tbf != nil {
-			tbf.Destory()
-		}
-	}
-}
-
-// 每秒派发一次令牌
-func handler() {
-	for {
-		Mutex.Lock()
-		for _, tbf := range job {
-			if tbf != nil {
-				tbf.mut.Lock()
-				tbf.token += tbf.cps
-				if tbf.token > tbf.burst {
-					tbf.token = tbf.burst
-				}
-				tbf.cond.Broadcast()
-				tbf.mut.Unlock()
-			}
-		}
-
-		Mutex.Unlock()
-		time.Sleep(time.Second)
-	}
-	return
-
-}
-
 func get_free_pos_unlocked() int64 {
 	for i := int64(0); i < MYTBF_MAX; i++ {
 		if job[i] == nil {
@@ -79,26 +41,45 @@ func get_free_pos_unlocked() int64 {
 	return -1
 }
 
-func Newtbf(cps, burst int64) TBF {
+func Newtbf(fillInterval time.Duration, cps, burst int64) TBF {
 	tbf := &tbf_st{
-		cps:   cps,
-		burst: burst,
-		token: 0,
+		cps:    cps,
+		burst:  burst,
+		token:  0,
+		ticker: time.NewTicker(fillInterval),
+		Exitch: make(chan struct{}),
 	}
 
 	tbf.cond = sync.NewCond(&tbf.mut)
 
-	tbf.mut.Lock()
+	Mutex.Lock()
 	// 将新的tbf装载到任务组中
 	pos := get_free_pos_unlocked()
 	if pos == -1 {
-		tbf.mut.Unlock()
+		Mutex.Unlock()
 		return nil
 	}
 
 	tbf.pos = pos
 	job[pos] = tbf
-	tbf.mut.Unlock()
+	Mutex.Unlock()
+
+	go func(s int64) {
+		for {
+			select {
+			case <-job[s].ticker.C:
+				job[s].mut.Lock()
+				job[s].token += job[s].cps
+				if job[s].token > job[s].burst {
+					job[s].token = job[s].burst
+				}
+				job[s].cond.Broadcast()
+				job[s].mut.Unlock()
+			case <-job[s].Exitch:
+				return
+			}
+		}
+	}(pos)
 
 	return tbf
 }
@@ -109,7 +90,6 @@ func (t *tbf_st) Fetchtoken(size int64) (int64, error) {
 	}
 
 	t.mut.Lock()
-
 	for t.token <= 0 {
 		t.cond.Wait()
 	}
@@ -121,7 +101,6 @@ func (t *tbf_st) Fetchtoken(size int64) (int64, error) {
 		n = size
 	}
 	t.token -= n
-
 	t.mut.Unlock()
 
 	return n, nil
@@ -134,12 +113,10 @@ func (t *tbf_st) Returntoken(size int64) (int64, error) {
 	}
 
 	t.mut.Lock()
-
 	t.token += size
 	if t.token > t.burst {
 		t.token = t.burst
 	}
-
 	t.mut.Unlock()
 
 	return size, nil
@@ -147,6 +124,7 @@ func (t *tbf_st) Returntoken(size int64) (int64, error) {
 }
 
 func (t *tbf_st) Destory() error {
+	job[t.pos].Exitch <- struct{}{}
 	t.mut.Lock()
 	job[t.pos] = nil
 	t.mut.Unlock()
