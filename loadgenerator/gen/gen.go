@@ -3,6 +3,7 @@ package gen
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -142,6 +143,28 @@ func (g *generator) asyncCall() {
 	// 获取一个gouroutine
 	g.tickets.Fetch()
 	go func() {
+		defer func() {
+			if p := recover(); p != nil {
+				var errMsg string
+				err, ok := interface{}(p).(error)
+				if ok {
+					errMsg = fmt.Sprintf("异步调用 panic:(%s)", err)
+				} else {
+					errMsg = fmt.Sprintf("异步调用panic! (提示：%#v)", p)
+				}
+
+				log.Println(errMsg)
+
+				result := &lg.CallResult{
+					ID:   -1,
+					Code: lg.FATAL_CALL,
+					Msg:  errMsg,
+				}
+				g.sendResult(result)
+
+			}
+			g.tickets.Return()
+		}()
 
 		// 构建调用方请求
 		rawReq := g.caller.BuildReq()
@@ -188,27 +211,84 @@ func (g *generator) asyncCall() {
 
 }
 
-func (g *generator) prepareToStop(err error) {
+// prepareStop 用于为停止载荷发生器做准备。
+func (g *generator) prepareToStop(ctxError error) {
+	log.Printf("Prepare to stop load generator (cause: %s)...", ctxError)
+	atomic.CompareAndSwapUint32(&g.status,
+		lg.STATUS_STARTED, lg.STATUS_STOPPING)
+
+	log.Println("Closing result channel...")
+	close(g.resultCh)
+
+	atomic.StoreUint32(&g.status, lg.STATUS_STOPPED)
+}
+
+// 发送调用结果
+func (g *generator) sendResult(result *lg.CallResult) bool {
+	if atomic.LoadUint32(&g.status) != lg.STATUS_STARTED {
+		return false
+	}
+
+	select {
+	case g.resultCh <- result:
+		return true
+	default:
+		return false
+	}
 
 }
 
-func (g *generator) sendResult(result *lg.CallResult) {
-
+// printIgnoredResult 打印被忽略的结果。
+func (g *generator) printIgnoredResult(result *lg.CallResult, cause string) {
+	resultMsg := fmt.Sprintf(
+		"ID=%d, Code=%d, Msg=%s, Elapse=%v",
+		result.ID, result.Code, result.Msg, result.Elapse)
+	log.Printf("Ignored result: %s. (cause: %s)\n", resultMsg, cause)
 }
 
 func (g *generator) callOne(rawReq *lg.RawReq) *lg.RawResp {
+	atomic.AddInt64(&g.callCount, 1)
+	if rawReq == nil {
+		return &lg.RawResp{
+			ID:  -1,
+			Err: errors.New("非法请求"),
+		}
+	}
+	// 开始调用
+	start := time.Now().UnixNano()
+	resp, err := g.caller.Call(rawReq.Req, g.timeoutNS)
+	end := time.Now().UnixNano()
+	elapsedTime := time.Duration(end - start)
+
+	// 构建响应
+	var rawResp lg.RawResp
+	if err != nil {
+		errMsg := fmt.Sprintf("同步调用 Error: %s.", err)
+		rawResp = lg.RawResp{
+			ID:     rawReq.ID,
+			Err:    errors.New(errMsg),
+			Elapse: elapsedTime}
+	} else {
+		rawResp = lg.RawResp{
+			ID:     rawReq.ID,
+			Resp:   resp,
+			Elapse: elapsedTime}
+	}
+	return &rawResp
 
 }
 
 func (g *generator) Stop() bool {
 	return true
+
 }
 
 func (g *generator) Status() uint32 {
+	return atomic.LoadUint32(&g.status)
 
-	return 0
 }
 
 func (g *generator) CallCount() int64 {
-	return 0
+	return atomic.LoadInt64(&g.callCount)
+
 }
