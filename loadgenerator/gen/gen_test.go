@@ -19,11 +19,6 @@ type HttpST struct {
 	Header map[string]string
 }
 
-type msg struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
 type httpReq struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
@@ -135,9 +130,9 @@ func TestStart(t *testing.T) {
 	// 初始化载荷发生器。
 	pset := ParamSet{
 		Caller:     NewHttpST(url, method, nil),
-		TimeoutNS:  50 * time.Millisecond,
-		LPS:        uint32(2000),
-		DurationNS: 5 * time.Second,
+		TimeoutNS:  100 * time.Millisecond,
+		LPS:        uint32(1500),
+		DurationNS: 1 * time.Minute,
 		ResultCh:   make(chan *lg.CallResult, 50),
 	}
 
