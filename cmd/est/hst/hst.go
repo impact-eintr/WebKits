@@ -63,9 +63,9 @@ func init() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		PSet.Caller = NewHttpST(url, method, nil, body)
+		PSet.Caller = NewHttpST(url, method, headersParse(headers), body)
 	} else {
-		PSet.Caller = NewHttpST(url, method, nil, []byte(body))
+		PSet.Caller = NewHttpST(url, method, headersParse(headers), []byte(body))
 	}
 
 	PSet.DurationNS = time.Duration(testTime) * time.Second
@@ -82,6 +82,15 @@ func fileParse(filename string) ([]byte, error) {
 	}
 
 	return io.ReadAll(file)
+}
+
+func headersParse(raw string) map[string]string {
+	headers := make(map[string]string)
+
+	header := strings.Split(raw, ": ")
+	headers[header[0]] = header[1]
+
+	return headers
 }
 
 func NewHttpST(url string, method string,
@@ -115,6 +124,13 @@ func (h *HttpST) Call(req []byte, timeoutNS time.Duration) ([]byte, error) {
 	}
 
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	// 添加用户自己加入的headers
+	for k, v := range h.Header {
+		httpReq.Header.Set(k, v)
+	}
+
+	// 发起请求
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		log.Println(err)
