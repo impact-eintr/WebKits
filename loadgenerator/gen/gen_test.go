@@ -49,7 +49,6 @@ func (h *HttpST) BuildReq() lg.RawReq {
 
 func (h *HttpST) Call(req []byte, timeoutNS time.Duration) ([]byte, error) {
 	client := &http.Client{}
-
 	httpReq, err := http.NewRequest(h.Method, h.Url, strings.NewReader(string(req)))
 	if err != nil {
 		return nil, err
