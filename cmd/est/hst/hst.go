@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -81,7 +80,7 @@ func fileParse(filename string) ([]byte, error) {
 		log.Fatalln(err)
 	}
 
-	return io.ReadAll(file)
+	return ioutil.ReadAll(file)
 }
 
 func headersParse(raw string) map[string]string {
