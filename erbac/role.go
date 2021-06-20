@@ -53,3 +53,15 @@ func (role *StdRole) Assign(p Permission) error {
 	return nil
 
 }
+
+// 展开stdRole的Permissions
+func (role *StdRole) Permissions() []Permission {
+	role.RLock()
+	res := make([]Permission, 0, len(role.permissions))
+	for _, p := range role.permissions {
+		res = append(res, p)
+	}
+	role.RUnlock()
+	return res
+
+}

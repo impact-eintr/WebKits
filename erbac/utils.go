@@ -2,8 +2,36 @@ package erbac
 
 import (
 	"encoding/json"
+	"errors"
+	"log"
 	"os"
 )
+
+type WalkHandler func(Role, []string) error
+
+func Walk(rbac *RBAC, h WalkHandler) (err error) {
+	if h == nil {
+		return errors.New("WalkHandler is nil")
+	}
+
+	rbac.mutex.Lock()
+	defer rbac.mutex.Unlock()
+
+	for id := range rbac.roles {
+		var parents []string
+		r := rbac.roles[id]
+
+		for parent := range rbac.parents[id] {
+			log.Println(parent)
+			parents = append(parents, parent)
+		}
+		if err := h(r, parents); err != nil {
+			return err
+		}
+	}
+
+	return
+}
 
 func LoadJson(filename string, v interface{}) error {
 	f, err := os.Open(filename)

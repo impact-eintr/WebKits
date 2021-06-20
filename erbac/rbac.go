@@ -2,6 +2,7 @@ package erbac
 
 import (
 	"errors"
+	"log"
 	"sync"
 )
 
@@ -19,7 +20,7 @@ var (
 
 type AssertionFunc func(*RBAC, string, Permission) bool
 
-func New() *RBAC {
+func NewRBAC() *RBAC {
 	return &RBAC{
 		roles:   make(Roles),
 		parents: make(map[string]map[string]struct{}),
@@ -93,4 +94,44 @@ func (rbac *RBAC) recursionCheck(id string, p Permission) bool {
 		}
 	}
 	return false
+}
+
+// 从文件中构建erbac
+func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions) {
+	// map[RoleId]PermissionIds
+	var jsonRoles map[string][]string
+	// map[RoleId]ParentIds
+	var jsonInher map[string][]string
+	// Load roles information
+	if err := LoadJson("roles.json", &jsonRoles); err != nil {
+		log.Fatal(err)
+	}
+	// Load inheritance information
+	if err := LoadJson("inher.json", &jsonInher); err != nil {
+		log.Fatal(err)
+	}
+
+	rbac := NewRBAC()
+	permissions := make(Permissions)
+
+	// Build roles and add them to goRBAC instance
+	for rid, pids := range jsonRoles {
+		role := NewStdRole(rid)
+		for _, pid := range pids {
+			_, ok := permissions[pid]
+			if !ok {
+				permissions[pid] = NewStdPermission(pid)
+			}
+			role.Assign(permissions[pid])
+		}
+		rbac.Add(role)
+	}
+	// Assign the inheritance relationship
+	for rid, parents := range jsonInher {
+		if err := rbac.SetParents(rid, parents); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	return rbac, permissions
 }
