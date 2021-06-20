@@ -32,6 +32,24 @@ func (role *StdRole) ID() string {
 	return role.IDStr
 }
 
-// Permit returns true if the role has specific permission.
+// Permit 进行权限判断
 func (role *StdRole) Permit(p Permission) (rslt bool) {
+	role.RLock()
+	for _, rp := range role.permissions {
+		if rp.Match(p) {
+			rslt = true
+			break
+		}
+	}
+	role.RUnlock()
+	return
+}
+
+// Assign 分配权限
+func (role *StdRole) Assign(p Permission) error {
+	role.Lock()
+	role.permissions[p.ID()] = p
+	role.Unlock()
+	return nil
+
 }

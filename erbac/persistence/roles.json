@@ -1,0 +1,13 @@
+{
+    "root":["add-table",
+            "del-table",
+            "edit-table"],
+    "manager":["add-all-record",
+               "edit-all-record",
+               "read-all-record",
+               "del-all-record"],
+    "user":["add-record",
+            "edit-record",
+            "read-record",
+            "del-record"]
+}
