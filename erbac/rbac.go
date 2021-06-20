@@ -100,21 +100,24 @@ func (rbac *RBAC) recursionCheck(id string, p Permission) bool {
 func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions) {
 	// map[RoleId]PermissionIds
 	var jsonRoles map[string][]string
+
 	// map[RoleId]ParentIds
 	var jsonInher map[string][]string
+
 	// Load roles information
-	if err := LoadJson("roles.json", &jsonRoles); err != nil {
+	if err := LoadJson(roleFile, &jsonRoles); err != nil {
 		log.Fatal(err)
 	}
+
 	// Load inheritance information
-	if err := LoadJson("inher.json", &jsonInher); err != nil {
+	if err := LoadJson(inherFile, &jsonInher); err != nil {
 		log.Fatal(err)
 	}
 
 	rbac := NewRBAC()
 	permissions := make(Permissions)
 
-	// Build roles and add them to goRBAC instance
+	// Build roles and add them to eRBAC instance
 	for rid, pids := range jsonRoles {
 		role := NewStdRole(rid)
 		for _, pid := range pids {
@@ -126,6 +129,7 @@ func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions) {
 		}
 		rbac.Add(role)
 	}
+
 	// Assign the inheritance relationship
 	for rid, parents := range jsonInher {
 		if err := rbac.SetParents(rid, parents); err != nil {

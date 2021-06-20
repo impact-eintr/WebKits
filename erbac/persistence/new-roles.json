@@ -1,1 +1,0 @@
-{"manager":["add-table","del-table","edit-table","add-all-record","edit-all-record","read-all-record","del-all-record"],"nobody":["read-record"],"root":["check-user","del-user","edit-user"],"user":["edit-record","read-record","del-record","add-record"]}

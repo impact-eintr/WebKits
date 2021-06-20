@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/impact-eintr/WebKits/erbac"
@@ -12,7 +11,7 @@ func init() {
 }
 
 func main() {
-	rbac, permissions := erbac.BuildRBAC("./role.json", "./inher.json")
+	rbac, permissions := erbac.BuildRBAC("./roles.json", "./inher.json")
 
 	if rbac.IsGranted("root", permissions["add-table"], nil) {
 		log.Println("root can add table")
@@ -43,8 +42,6 @@ func main() {
 	nobody := erbac.NewStdRole("nobody")
 	permissions["read-record"] = erbac.NewStdPermission("read-record")
 
-	fmt.Println(permissions)
-
 	nobody.Assign(permissions["read-record"])
 	rbac.Add(nobody)
 	// Check if `nobody` can read text again
@@ -73,11 +70,11 @@ func main() {
 	}
 
 	// Save roles information
-	if err := erbac.SaveJson("new-roles.json", &jsonOutputRoles); err != nil {
+	if err := erbac.SaveJson("newRoles.json", &jsonOutputRoles); err != nil {
 		log.Fatal(err)
 	}
 	// Save inheritance information
-	if err := erbac.SaveJson("new-inher.json", &jsonOutputInher); err != nil {
+	if err := erbac.SaveJson("newInher.json", &jsonOutputInher); err != nil {
 		log.Fatal(err)
 	}
 }

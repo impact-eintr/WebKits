@@ -3,7 +3,6 @@ package erbac
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"os"
 )
 
@@ -22,7 +21,7 @@ func Walk(rbac *RBAC, h WalkHandler) (err error) {
 		r := rbac.roles[id]
 
 		for parent := range rbac.parents[id] {
-			log.Println(parent)
+			// fmt.Println("id: ", id, "parent: ", parent)
 			parents = append(parents, parent)
 		}
 		if err := h(r, parents); err != nil {
