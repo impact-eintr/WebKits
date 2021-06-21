@@ -6,10 +6,6 @@ import (
 	"github.com/impact-eintr/WebKits/erbac"
 )
 
-func init() {
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
-}
-
 func main() {
 	rbac, permissions := erbac.BuildRBAC("./roles.json", "./inher.json")
 
