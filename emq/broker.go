@@ -2,6 +2,7 @@ package emq
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -52,7 +53,7 @@ func (b *StdBroker) publish(topic string, msg interface{}) error {
 // subscribe：消息的订阅，传入订阅的主题，即可完成订阅，并返回对应的channel通道用来接收数据
 func (b *StdBroker) subscribe(topic string) (<-chan interface{}, error) {
 	select {
-	case <- b.exit:
+	case <-b.exit:
 		return nil, errors.New("broker closed")
 	default:
 	}
@@ -61,19 +62,20 @@ func (b *StdBroker) subscribe(topic string) (<-chan interface{}, error) {
 	b.Lock()
 	b.topics[topic] = append(b.topics[topic], ch)
 	b.Unlock()
+	fmt.Println("订阅: ", topic)
 	return ch, nil
 }
 
 // subscribe：取消订阅，传入订阅的主题和对应的通道
 func (b *StdBroker) unsubscribe(topic string, sub <-chan interface{}) error {
 	select {
-	case <- b.exit:
+	case <-b.exit:
 		return errors.New("broker close")
 	default:
 	}
 
 	b.RLock()
-	subscribers , ok := b.topics[topic]
+	subscribers, ok := b.topics[topic]
 	b.RUnlock()
 
 	if !ok {
@@ -127,19 +129,24 @@ func (b *StdBroker) broadcast(msg interface{}, subscribers []chan interface{}) {
 		idleTimeout := time.NewTimer(idleDuration)
 		defer idleTimeout.Stop()
 
-		for j := start; j < count;j+= concurrency {
+		for j := start; j < count; j += concurrency {
 			if !idleTimeout.Stop() {
-				select{
-				case subscribers[j] <- msg:
-				case <- idleTimeout.C:
-				case <- b.exit:
-					return
+				select {
+				case <-idleTimeout.C:
+				default:
 				}
+			}
+			idleTimeout.Reset(idleDuration)
+			select {
+			case subscribers[j] <- msg:
+			case <-idleTimeout.C:
+			case <-b.exit:
+				return
 			}
 		}
 	}
 
-	for i := 0;i < concurrency;i++ {
+	for i := 0; i < concurrency; i++ {
 		go pub(i)
 	}
 }

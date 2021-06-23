@@ -84,6 +84,10 @@ func fileParse(filename string) ([]byte, error) {
 }
 
 func headersParse(raw string) map[string]string {
+	if raw == "" {
+		return nil
+	}
+
 	headers := make(map[string]string)
 
 	header := strings.Split(raw, ": ")
