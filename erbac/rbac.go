@@ -2,12 +2,13 @@ package erbac
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"sync"
 )
 
 type RBAC struct {
-	mutex   sync.Mutex
+	mutex   sync.RWMutex
 	roles   Roles
 	parents map[string]map[string]struct{}
 }
@@ -27,6 +28,7 @@ func NewRBAC() *RBAC {
 	}
 }
 
+// 给当前的rbac添加一个拥有权限的角色
 func (rbac *RBAC) Add(r Role) (err error) {
 	rbac.mutex.Lock()
 	if _, ok := rbac.roles[r.ID()]; !ok {
@@ -39,6 +41,72 @@ func (rbac *RBAC) Add(r Role) (err error) {
 
 }
 
+// 移除一个角色
+func (rbac *RBAC) Remove(id string) (err error) {
+	rbac.mutex.Lock()
+
+	if _, ok := rbac.roles[id]; ok {
+		delete(rbac.roles, id)
+		for rid, parents := range rbac.parents {
+			if rid == id {
+				delete(rbac.parents, rid)
+				continue
+			}
+			for parent := range parents {
+				if parent == id {
+					delete(rbac.parents[rid], id)
+					break
+				}
+			}
+		}
+	} else {
+		err = ErrRoleExist
+	}
+
+	rbac.mutex.Unlock()
+	return
+
+}
+
+func (rbac *RBAC) GetParents(id string) (parents []string, err error) {
+	rbac.mutex.RLock()
+	defer rbac.mutex.RUnlock()
+
+	if _, ok := rbac.roles[id]; !ok {
+		return nil, ErrRoleNotExist
+	}
+
+	if ids, ok := rbac.parents[id]; ok {
+		for parent := range ids {
+			parents = append(parents, parent)
+		}
+	}
+	return
+
+}
+
+// 设置单个parent
+func (rbac *RBAC) SetParent(id string, parent string) error {
+	rbac.mutex.Lock()
+	defer rbac.mutex.Unlock()
+
+	if _, ok := rbac.roles[id]; !ok {
+		return ErrRoleNotExist
+	}
+	if _, ok := rbac.roles[parent]; !ok {
+		return ErrRoleNotExist
+	}
+	if _, ok := rbac.parents[id]; !ok {
+		rbac.parents[id] = make(map[string]struct{})
+	}
+
+	rbac.parents[id][parent] = Empty
+
+	return nil
+
+}
+
+// 设置多个parent
 func (rbac *RBAC) SetParents(id string, parents []string) error {
 	rbac.mutex.Lock()
 	defer rbac.mutex.Unlock()
@@ -61,6 +129,29 @@ func (rbac *RBAC) SetParents(id string, parents []string) error {
 	}
 	return nil
 
+}
+
+// 移除单个parent
+func (rbac *RBAC) RemoveParent(id string, parent string) error {
+	rbac.mutex.Lock()
+	defer rbac.mutex.Unlock()
+
+	if _, ok := rbac.roles[id]; !ok {
+		return ErrRoleNotExist
+	}
+	if _, ok := rbac.roles[parent]; !ok {
+		return ErrRoleNotExist
+	}
+	delete(rbac.parents[id], parent)
+
+	return nil
+
+}
+
+func (rbac *RBAC) Get(id string) (r Role, parents []string, err error) {
+	rbac.mutex.RLock()
+	rbac.mutex.RUnlock()
+	return
 }
 
 func (rbac *RBAC) IsGranted(id string, p Permission, assert AssertionFunc) (res bool) {
@@ -136,6 +227,8 @@ func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions) {
 			log.Fatal(err)
 		}
 	}
+
+	fmt.Println(rbac.parents)
 
 	return rbac, permissions
 }
