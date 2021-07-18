@@ -3,8 +3,7 @@ package main
 import (
 	"log"
 
-	"est/hst"
-
+	"github.com/impact-eintr/WebKits/cmd/est/hst"
 	lg "github.com/impact-eintr/WebKits/loadgenerator"
 	"github.com/impact-eintr/WebKits/loadgenerator/gen"
 )
