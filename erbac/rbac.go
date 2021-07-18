@@ -2,8 +2,6 @@ package erbac
 
 import (
 	"errors"
-	"fmt"
-	"log"
 	"sync"
 )
 
@@ -16,6 +14,7 @@ type RBAC struct {
 var (
 	ErrRoleExist    = errors.New("角色已经存在")
 	ErrRoleNotExist = errors.New("角色不存在")
+	ErrFounfdCircle = errors.New("发现环继承")
 	Empty           = struct{}{}
 )
 
@@ -102,15 +101,13 @@ func (rbac *RBAC) SetParent(id string, parent string) error {
 
 	rbac.parents[id][parent] = Empty
 
-	return nil
+	return InherCircle(rbac)
 
 }
 
 // 设置多个parent
 func (rbac *RBAC) SetParents(id string, parents []string) error {
 	rbac.mutex.Lock()
-	defer rbac.mutex.Unlock()
-
 	if _, ok := rbac.roles[id]; !ok {
 		return ErrRoleNotExist
 	}
@@ -127,7 +124,9 @@ func (rbac *RBAC) SetParents(id string, parents []string) error {
 	for _, parent := range parents {
 		rbac.parents[id][parent] = Empty
 	}
-	return nil
+	rbac.mutex.Unlock()
+
+	return InherCircle(rbac)
 
 }
 
@@ -187,8 +186,41 @@ func (rbac *RBAC) recursionCheck(id string, p Permission) bool {
 	return false
 }
 
+func (rbac *RBAC) SaveUserRBAC(newRoleFile, newInherFile string) error {
+	// Persist the change
+	// map[RoleId]PermissionIds
+	jsonOutputRoles := make(map[string][]string)
+	// map[RoleId]ParentIds
+	jsonOutputInher := make(map[string][]string)
+	SaveJsonHandler := func(r Role, parents []string) error {
+		// WARNING: Don't use erbac.RBAC instance in the handler,
+		// otherwise it causes deadlock.
+		permissions := make([]string, 0)
+		for _, p := range r.(*StdRole).Permissions() {
+			permissions = append(permissions, p.ID())
+		}
+		jsonOutputRoles[r.ID()] = permissions
+		jsonOutputInher[r.ID()] = parents
+		return nil
+	}
+	if err := Walk(rbac, SaveJsonHandler); err != nil {
+		return err
+	}
+
+	// Save roles information
+	if err := SaveJson(newRoleFile, &jsonOutputRoles); err != nil {
+		return err
+	}
+	// Save inheritance information
+	if err := SaveJson(newInherFile, &jsonOutputInher); err != nil {
+		return err
+	}
+	return nil
+
+}
+
 // 从文件中构建erbac
-func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions) {
+func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions, error) {
 	// map[RoleId]PermissionIds
 	var jsonRoles map[string][]string
 
@@ -197,12 +229,12 @@ func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions) {
 
 	// Load roles information
 	if err := LoadJson(roleFile, &jsonRoles); err != nil {
-		log.Fatal(err)
+		return nil, nil, err
 	}
 
 	// Load inheritance information
 	if err := LoadJson(inherFile, &jsonInher); err != nil {
-		log.Fatal(err)
+		return nil, nil, err
 	}
 
 	rbac := NewRBAC()
@@ -224,11 +256,9 @@ func BuildRBAC(roleFile, inherFile string) (*RBAC, Permissions) {
 	// Assign the inheritance relationship
 	for rid, parents := range jsonInher {
 		if err := rbac.SetParents(rid, parents); err != nil {
-			log.Fatal(err)
+			return nil, nil, err
 		}
 	}
+	return rbac, permissions, nil
 
-	fmt.Println(rbac.parents)
-
-	return rbac, permissions
 }

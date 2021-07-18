@@ -7,7 +7,10 @@ import (
 )
 
 func main() {
-	rbac, permissions := erbac.BuildRBAC("./roles.json", "./inher.json")
+	rbac, permissions, err := erbac.BuildRBAC("./roles.json", "./inher.json")
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	if rbac.IsGranted("root", permissions["add-table"], nil) {
 		log.Println("root can add table")
@@ -45,32 +48,9 @@ func main() {
 		log.Println("Nobody can read record")
 	}
 
-	// Persist the change
-	// map[RoleId]PermissionIds
-	jsonOutputRoles := make(map[string][]string)
-	// map[RoleId]ParentIds
-	jsonOutputInher := make(map[string][]string)
-	SaveJsonHandler := func(r erbac.Role, parents []string) error {
-		// WARNING: Don't use erbac.RBAC instance in the handler,
-		// otherwise it causes deadlock.
-		permissions := make([]string, 0)
-		for _, p := range r.(*erbac.StdRole).Permissions() {
-			permissions = append(permissions, p.ID())
-		}
-		jsonOutputRoles[r.ID()] = permissions
-		jsonOutputInher[r.ID()] = parents
-		return nil
-	}
-	if err := erbac.Walk(rbac, SaveJsonHandler); err != nil {
+	err = rbac.SaveUserRBAC("newRoles.json", "newInher.json")
+	if err != nil {
 		log.Fatalln(err)
 	}
 
-	// Save roles information
-	if err := erbac.SaveJson("newRoles.json", &jsonOutputRoles); err != nil {
-		log.Fatal(err)
-	}
-	// Save inheritance information
-	if err := erbac.SaveJson("newInher.json", &jsonOutputInher); err != nil {
-		log.Fatal(err)
-	}
 }
