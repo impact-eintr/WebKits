@@ -32,6 +32,9 @@ func main() {
 		log.Println("user can not add all record")
 	}
 
+	r, _, _ := rbac.Get("root")
+	log.Println(r)
+
 	// Check if `nobody` can add text
 	// `nobody` is not exist in goRBAC at the moment
 	//if !rbac.IsGranted("nobody", permissions["read-text"], nil) {

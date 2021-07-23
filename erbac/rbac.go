@@ -149,6 +149,14 @@ func (rbac *RBAC) RemoveParent(id string, parent string) error {
 
 func (rbac *RBAC) Get(id string) (r Role, parents []string, err error) {
 	rbac.mutex.RLock()
+	var ok bool
+	if r, ok = rbac.roles[id]; ok {
+		for parent := range rbac.parents[id] {
+			parents = append(parents, parent)
+		}
+	} else {
+		err = ErrRoleNotExist
+	}
 	rbac.mutex.RUnlock()
 	return
 }
