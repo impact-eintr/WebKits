@@ -2,6 +2,7 @@ package erbac
 
 import (
 	"errors"
+	"sort"
 	"sync"
 )
 
@@ -195,10 +196,7 @@ func (rbac *RBAC) recursionCheck(id string, p Permission) bool {
 }
 
 func (rbac *RBAC) SaveUserRBAC(newRoleFile, newInherFile string) error {
-	// Persist the change
-	// map[RoleId]PermissionIds
 	jsonOutputRoles := make(map[string][]string)
-	// map[RoleId]ParentIds
 	jsonOutputInher := make(map[string][]string)
 	SaveJsonHandler := func(r Role, parents []string) error {
 		// WARNING: Don't use erbac.RBAC instance in the handler,
@@ -207,6 +205,39 @@ func (rbac *RBAC) SaveUserRBAC(newRoleFile, newInherFile string) error {
 		for _, p := range r.(*StdRole).Permissions() {
 			permissions = append(permissions, p.ID())
 		}
+		jsonOutputRoles[r.ID()] = permissions
+		jsonOutputInher[r.ID()] = parents
+		return nil
+	}
+	if err := Walk(rbac, SaveJsonHandler); err != nil {
+		return err
+	}
+
+	// Save roles information
+	if err := SaveJson(newRoleFile, &jsonOutputRoles); err != nil {
+		return err
+	}
+	// Save inheritance information
+	if err := SaveJson(newInherFile, &jsonOutputInher); err != nil {
+		return err
+	}
+	return nil
+
+}
+
+func (rbac *RBAC) SaveUserRBACWithSort(newRoleFile, newInherFile string) error {
+	jsonOutputRoles := make(map[string][]string)
+	jsonOutputInher := make(map[string][]string)
+	SaveJsonHandler := func(r Role, parents []string) error {
+		// WARNING: Don't use erbac.RBAC instance in the handler,
+		// otherwise it causes deadlock.
+		permissions := make([]string, 0)
+		for _, p := range r.(*StdRole).Permissions() {
+			permissions = append(permissions, p.ID())
+		}
+		sort.Slice(permissions, func(i, j int) bool {
+			return permissions[i] < permissions[j]
+		})
 		jsonOutputRoles[r.ID()] = permissions
 		jsonOutputInher[r.ID()] = parents
 		return nil
