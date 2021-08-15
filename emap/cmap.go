@@ -13,3 +13,9 @@ type ConcurrentMap interface {
 	// Len 会返回k-v的数量
 	Len()
 }
+
+type myConcurrentMap struct {
+	concurrency int
+	segments    []Segment
+	total       uint64
+}
