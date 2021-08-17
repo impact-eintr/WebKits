@@ -98,7 +98,29 @@ func (b *bucket) GetFirstPair() Pair {
 }
 
 func (b *bucket) Delete(key string, lock sync.Locker) bool {
+	if lock != nil {
+		lock.Lock()
+		defer lock.Unlock()
+	}
+	firstPair := b.GetFirstPair()
+	if firstPair == nil {
+		return false
+	}
 
+	var prePair []Pair
+	var target Pair
+	var breakpoint Pair
+	for v := firstPair; v != nil; v = v.Next() {
+		if v.Key() == key {
+			target = v
+			breakpoint = v.Next()
+			break
+		}
+		prePair = append(prePair, v)
+	}
+	if target == nil {
+		return false
+	}
 }
 
 func (b *bucket) Clear(lock sync.Locker) {

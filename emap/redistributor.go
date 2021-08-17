@@ -115,8 +115,19 @@ func (p *myPairRedistributor) Redistribute(bucketStatus BucketStatus, buckets []
 	}()
 	switch bucketStatus {
 	case BUCKET_STATUS_OVERWEIGHT:
+		if atomic.LoadUint64(&p.overweightBucketCount)*4 < currentNumber {
+			return nil, false
+		}
+		newNumber = currentNumber << 1
 	case BUCKET_STATUS_UNDERWEIGHT:
+
 	default:
+		return nil, false
+	}
+
+	if newNumber == currentNumber {
+		atomic.StoreUint64(&p.overweightBucketCount, 0)
+		atomic.StoreUint64(&p.emptyBucketCount, 0)
 		return nil, false
 	}
 

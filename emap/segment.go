@@ -80,11 +80,19 @@ func (s *segment) GetWithHash(key string, keyHash uint64) Pair {
 }
 
 func (s *segment) Delete(key string) bool {
-
+	s.lock.Lock()
+	b := s.buckets[int(hash(key)%uint64(s.bucketsLen))]
+	ok := b.Delete(key, nil)
+	if ok {
+		newToatal := atomic.AddUint64(&s.paitTotal, ^uint64(0)) // +uint64的最大值
+		s.redistribute(newToatal, b.Size())
+	}
+	s.lock.Unlock()
+	return ok
 }
 
 func (s *segment) Size() uint64 {
-
+	return atomic.LoadUint64(&s.paitTotal)
 }
 
 // 会检查给定参数并设定相应的阈值和计数
