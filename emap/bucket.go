@@ -1,6 +1,7 @@
 package emap
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 )
@@ -88,7 +89,7 @@ func (b *bucket) Get(key string) Pair {
 }
 
 func (b *bucket) GetFirstPair() Pair {
-	if v := b.firstValue.Load(); v != nil { // 没有值
+	if v := b.firstValue.Load(); v == nil { // 没有值
 		return nil
 	} else if p, ok := v.(Pair); !ok || p == placeholder { // 异常的值或者只是初始化
 		return nil
@@ -121,16 +122,44 @@ func (b *bucket) Delete(key string, lock sync.Locker) bool {
 	if target == nil {
 		return false
 	}
+
+	newFirstPair := breakpoint
+	// 将被删除的元素之前的元素复制
+	for i := len(prePair) - 1; i >= 0; i-- {
+		pairCopy := prePair[i].Copy()
+		pairCopy.SetNext(newFirstPair)
+		newFirstPair = pairCopy
+	}
+	if newFirstPair != nil {
+		b.firstValue.Store(newFirstPair)
+	} else {
+		b.firstValue.Store(placeholder)
+	}
+	atomic.AddUint64(&b.size, ^uint64(0))
+	return true
+
 }
 
 func (b *bucket) Clear(lock sync.Locker) {
+	if lock != nil {
+		lock.Lock()
+		defer lock.Unlock()
+	}
+	atomic.StoreUint64(&b.size, 0)
+	b.firstValue.Store(placeholder)
 
 }
 
 func (b *bucket) Size() uint64 {
-
+	return atomic.LoadUint64(&b.size)
 }
 
 func (b *bucket) String() string {
-
+	var buf bytes.Buffer
+	buf.WriteString("[")
+	for v := b.GetFirstPair(); v != nil; v = v.Next() {
+		buf.WriteString(v.String() + " ")
+	}
+	buf.WriteString("]")
+	return buf.String()
 }

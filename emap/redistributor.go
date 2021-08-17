@@ -1,7 +1,7 @@
 package emap
 
 import (
-	"fmt"
+	"log"
 	"sync/atomic"
 )
 
@@ -53,16 +53,16 @@ var bucketCountTemplate = `Bucket count:
 `
 
 func (p *myPairRedistributor) UpdateThreshold(pairTotal uint64, bucketNumber int) {
-	defer func() {
-		fmt.Printf(bucketCountTemplate, pairTotal, bucketNumber, average,
-			atomic.LoadUint64(&p.upperThreshold),
-			atomic.LoadUint64(&p.emptyBucketCount))
-	}()
 	var average float64
 	average = float64(pairTotal / uint64(bucketNumber))
 	if average < 100 {
 		average = 100
 	}
+	//defer func() {
+	//	fmt.Printf(bucketCountTemplate, pairTotal, bucketNumber, average,
+	//		atomic.LoadUint64(&p.upperThreshold),
+	//		atomic.LoadUint64(&p.emptyBucketCount))
+	//}()
 	atomic.StoreUint64(&p.upperThreshold, uint64(average*p.loadFactor))
 
 }
@@ -78,15 +78,15 @@ var bucketStatusTemplate = `Bucket count:
 `
 
 func (p *myPairRedistributor) CheckBucketStatus(pairTotal uint64, bucketSize uint64) (bucketStatus BucketStatus) {
-	defer func() {
-		fmt.Printf(bucketStatusTemplate,
-			pairTotal,
-			bucketSize,
-			atomic.LoadUint64(&p.upperThreshold),
-			atomic.LoadUint64(&p.overweightBucketCount),
-			atomic.LoadUint64(&p.emptyBucketCount),
-			bucketStatus)
-	}()
+	//defer func() {
+	//	fmt.Printf(bucketStatusTemplate,
+	//		pairTotal,
+	//		bucketSize,
+	//		atomic.LoadUint64(&p.upperThreshold),
+	//		atomic.LoadUint64(&p.overweightBucketCount),
+	//		atomic.LoadUint64(&p.emptyBucketCount),
+	//		bucketStatus)
+	//}()
 	if bucketSize > DEFAULT_BUCKET_MAX_SIZE ||
 		bucketSize >= atomic.LoadUint64(&p.upperThreshold) {
 		atomic.AddUint64(&p.overweightBucketCount, 1)
@@ -109,26 +109,67 @@ var redistributionTemplate = `Bucket count:
 func (p *myPairRedistributor) Redistribute(bucketStatus BucketStatus, buckets []Bucket) (newBuckets []Bucket, changed bool) {
 	currentNumber := uint64(len(buckets))
 	newNumber := currentNumber
-	defer func() {
-		fmt.Printf(redistributionTemplate,
-			bucketStatus, currentNumber, newNumber)
-	}()
+	//defer func() {
+	//	fmt.Printf(redistributionTemplate,
+	//		bucketStatus, currentNumber, newNumber)
+	//}()
 	switch bucketStatus {
 	case BUCKET_STATUS_OVERWEIGHT:
 		if atomic.LoadUint64(&p.overweightBucketCount)*4 < currentNumber {
 			return nil, false
 		}
-		newNumber = currentNumber << 1
+		newNumber = currentNumber << 1 // 桶数翻番
 	case BUCKET_STATUS_UNDERWEIGHT:
-
+		if currentNumber < 100 ||
+			atomic.LoadUint64(&p.emptyBucketCount)*4 < currentNumber {
+			return nil, false
+		}
+		newNumber = currentNumber >> 1 // 桶数砍半
+		if newNumber < 2 {
+			newNumber = 2
+		}
 	default:
 		return nil, false
 	}
 
-	if newNumber == currentNumber {
+	var pairs []Pair
+	for _, b := range buckets {
+		for e := b.GetFirstPair(); e != nil; e = e.Next() {
+			pairs = append(pairs, e)
+		}
+	}
+	log.Println(pairs)
+
+	if newNumber == currentNumber { // 0 == 0
 		atomic.StoreUint64(&p.overweightBucketCount, 0)
 		atomic.StoreUint64(&p.emptyBucketCount, 0)
 		return nil, false
 	}
+	if newNumber > currentNumber {
+		for i := uint64(0); i < currentNumber; i++ {
+			buckets[i].Clear(nil)
+		}
+
+		for j := newNumber - currentNumber; j > 0; j-- {
+			buckets = append(buckets, newBucket())
+		}
+	} else {
+		buckets = make([]Bucket, newNumber)
+		for i := uint64(0); i < newNumber; i++ {
+			buckets[i] = newBucket()
+		}
+	}
+
+	var count int
+	for _, p := range pairs {
+		index := int(p.Hash() % newNumber)
+		b := buckets[index]
+		b.Put(p, nil)
+		count++
+	}
+	// 扩容完毕
+	atomic.StoreUint64(&p.overweightBucketCount, 0)
+	atomic.StoreUint64(&p.emptyBucketCount, 0)
+	return buckets, true
 
 }

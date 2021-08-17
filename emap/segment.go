@@ -66,6 +66,7 @@ func (s *segment) Put(p Pair) (bool, error) {
 	}
 	s.lock.Unlock()
 	return ok, err
+
 }
 
 func (s *segment) Get(key string) Pair {
@@ -77,6 +78,7 @@ func (s *segment) GetWithHash(key string, keyHash uint64) Pair {
 	b := s.buckets[int(keyHash%uint64(s.bucketsLen))]
 	s.lock.Unlock()
 	return b.Get(key)
+
 }
 
 func (s *segment) Delete(key string) bool {
@@ -89,6 +91,7 @@ func (s *segment) Delete(key string) bool {
 	}
 	s.lock.Unlock()
 	return ok
+
 }
 
 func (s *segment) Size() uint64 {
