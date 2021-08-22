@@ -48,7 +48,7 @@ type Router struct {
 	// 首先删除多余的路径，像 ../ 或者 // 会被删除。
 	// 然后将清理过的路径再不区分大小写查找，如果能够找到对应的路由， 将请求重定向到
 	// 这个路由上 ( GET 是 301， 其他是 307 ) 。
-	RedirectFixedPath bol
+	RedirectFixedPath bool
 
 	HandleMethodNotAllowed bool
 
@@ -80,9 +80,72 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// 到基数树中去查找匹配的路由
 	if root := r.trees[req.Method]; root != nil {
+		// 如果路由成功匹配 从路由从基数树中取出
 		if handle, ps, tsr := root.getValue(path, r.getParams); handle != nil {
+			if ps != nil {
+				handle(w, req, *ps) // 向httprouter注册的函数
+				r.putParams(ps)
+			} else {
+				handle(w, req, nil)
+			}
+			return // 此次生命周期结束
+		} else if req.Method != "CONNECT" && path != "/" {
+			// 在 HTTP 协议中，CONNECT 方法可以开启一个客户端与所请求资源之间的双向沟通的通道。
+			// 它可以用来创建隧道（tunnel）。
+			// 例如，CONNECT 可以用来访问采用了 SSL (en-US) (HTTPS)  协议的站点。
+			// 客户端要求代理服务器将 TCP 连接作为通往目的主机隧道。
+			// 之后该服务器会代替客户端与目的主机建立连接。
+			// 连接建立好之后，代理服务器会面向客户端发送或接收 TCP 消息流。
 
+			// 这里就要做重定向处理， 默认是 301
+			code := http.StatusMovedPermanently
+			// 如果请求的方式不是 GET 就将 http 的响应码设置成 308
+			if req.Method != http.MethodGet {
+				code = http.StatusPermanentRedirect
+			}
+
+			// tsr 返回值是一个 bool 值，用来判断是否需要重定向, getValue 返回来的
+			// RedirectTrailingSlash 这个就是初始化时候定义的，只有为 true 才会处理
+			if tsr && r.RedirectTrailingSlash {
+				if len(path) > 1 && path[len(path)-1] == '/' {
+					req.URL.Path = path[:len(path)-1]
+				} else {
+					req.URL.Path = path + "/"
+				}
+				// 执行重定向
+				http.Redirect(w, req, req.URL.String(), code)
+				return
+			}
+			// 路由没有找到，重定向规则也不符合，这里会尝试修复路径
+			// 需要在初始化的时候定义 RedirectFixedPath 为 true，允许修复
+			if r.RedirectFixedPath {
+				// 这里就是在处理 Router 里面说的，将路径通过 CleanPath 方法去除多余的部分
+				// 并且 RedirectTrailingSlash 为 ture 的时候，去匹配路由
+				// 比如： 定义了一个路由 /foo , 但实际访问的是 ////FOO ，就会被重定向到 /foo
+				fixedPath, found := root.findCaseInsensitivePath(
+					CleanPath(path),
+					r.RedirectTrailingSlash,
+				)
+
+				// 修复好的路径有处理路由的话 执行重定向
+				if found {
+					req.URL.Path = fixedPath
+					http.Redirect(w, req, req.URL.String(), code)
+				}
+			}
 		}
+	}
+
+	if req.Method == http.MethodOptions && r.HandleOPTHONS {
+		// 处理 OPTHIONS 请求
+
+	}
+
+	// 处理 404
+	if r.NotFound != nil {
+		r.NotFound.ServeHTTP(w, req)
+	} else {
+		http.NotFound(w, req)
 	}
 
 }
@@ -99,4 +162,10 @@ func (r *Router) getParams() *Params {
 	*ps = (*ps)[0:0]
 	return ps
 
+}
+
+func (r *Router) putParams(ps *Params) {
+	if ps != nil {
+		r.paramsPool.Put(ps)
+	}
 }
