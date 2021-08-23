@@ -58,7 +58,7 @@ func (p *myPairRedistributor) UpdateThreshold(pairTotal uint64, bucketNumber int
 	if average < 100 {
 		average = 100
 	}
-	//defer func() {
+	/ /defer func() 
 	//	fmt.Printf(bucketCountTemplate, pairTotal, bucketNumber, average,
 	//		atomic.LoadUint64(&p.upperThreshold),
 	//		atomic.LoadUint64(&p.emptyBucketCount))

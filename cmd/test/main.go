@@ -1,13 +1,16 @@
 package main
 
-import (
-	"fmt"
-)
+import "fmt"
 
 func main() {
-	var a uint64 = 1 << 63
-	var b uint64 = 0
-	fmt.Printf("%b\n", a)
-	fmt.Printf("%b\n", ^b)
-	fmt.Printf("%d\n", 2+^b)
+	m := make(map[int]int, 1<<10)
+	for i := 0; i < 1024; i++ {
+		m[i] = i << 1
+	}
+
+	for k := range m {
+		go func(key int) {
+			fmt.Println(key)
+		}(k)
+	}
 }

@@ -1,10 +1,14 @@
 package erouter
 
 import (
+	"context"
 	"net/http"
+	"strings"
 	"sync"
 )
 
+// 这个参数就是用来支持路径中的参数绑定的， 比如： /hello/:name ,
+// 可以通过 Params.ByName("name") 来获取路径绑定参数的值。其实这个 Params 就是一个 Param 的切片，
 type Param struct {
 	key   string
 	value string
@@ -28,9 +32,13 @@ type paramsKey struct{}
 
 var ParamsKey = paramsKey{}
 
+var MatchedRoutePathParam = "$matchRoutePath"
+
 type Handle func(http.ResponseWriter, *http.Request, Params)
 
 type Router struct {
+	// 这里是一个 map ， 每一种请求方式（GET，POST ……) 单独管理一颗树
+	// 官方说这样比每个节点中去保存方法节省空间，并且查找的时候速度会更快。
 	trees map[string]*node
 
 	paramsPool sync.Pool
@@ -57,7 +65,7 @@ type Router struct {
 	HandleOPTHONS bool
 
 	GlobalOPTHONS http.Handler
-	GlobalAllowed string
+	globalAllowed string
 
 	NotFound         http.Handler
 	MethodNotAllowed http.Handler
@@ -138,7 +146,26 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	if req.Method == http.MethodOptions && r.HandleOPTHONS {
 		// 处理 OPTHIONS 请求
-
+		if allow := r.allowed(path, http.MethodOptions); allow != "" {
+			w.Header().Set("Allow", allow)
+			if r.GlobalOPTHONS != nil {
+				r.GlobalOPTHONS.ServeHTTP(w, req)
+			}
+			return
+		}
+	} else if r.HandleMethodNotAllowed {
+		// 返回 405 响应，通过 allowed() 方法来处理 405 时 allow的值。
+		// 大概意思是这样的，比如定义了一个 POST 方法的路由 POST("/foo",...)
+		// 但是调用却是通过 GET 方式，这是就会给调用者返回一个包含 POST 的 405
+		if allow := r.allowed(path, req.Method); allow != "" {
+			w.Header().Set("Allow", allow)
+			if r.MethodNotAllowed != nil {
+				r.MethodNotAllowed.ServeHTTP(w, req)
+			} else {
+				http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			}
+			return
+		}
 	}
 
 	// 处理 404
@@ -168,4 +195,204 @@ func (r *Router) putParams(ps *Params) {
 	if ps != nil {
 		r.paramsPool.Put(ps)
 	}
+}
+
+func (r *Router) allowed(path, reqMethod string) (allow string) {
+	allowed := make([]string, 0, 9) // 总共有9种
+
+	if path == "*" {
+		if reqMethod == "" {
+			for method := range r.trees {
+				if method == http.MethodOptions {
+					continue
+				}
+				allowed = append(allowed, method)
+			}
+		} else {
+			return r.globalAllowed
+		}
+	} else {
+		for method := range r.trees {
+			if method == reqMethod || method == http.MethodOptions {
+				continue
+			}
+
+			handle, _, _ := r.trees[method].getValues(path, nil)
+			if handle != nil {
+				allowed = append(allowed, method)
+			}
+		}
+	}
+
+	if len(allowed) > 0 {
+		allowed = append(allowed, http.MethodOptions)
+		// 给允许的方法排序
+		// 为什么要排序 为什么不使用更快的排序方法
+		for i, l := 1, len(allowed); i < l; i++ {
+			for j := i; j > 0 && allowed[j] < allowed[j-1]; j-- {
+				allowed[j], allowed[j-1] = allowed[j-1], allowed[j]
+			}
+		}
+
+		return strings.Join(allowed, ", ")
+	}
+	return allow
+
+}
+
+// 各种HTTP请求处理函数入口
+func (r *Router) GET(path string, handle Handle) {
+	r.Handle(http.MethodGet, path, handle)
+
+}
+
+func (r *Router) HEAD(path string, handle Handle) {
+	r.Handle(http.MethodHead, path, handle)
+
+}
+
+func (r *Router) OPTIONS(path string, handle Handle) {
+	r.Handle(http.MethodOptions, path, handle)
+
+}
+
+func (r *Router) POST(path string, handle Handle) {
+	r.Handle(http.MethodPost, path, handle)
+
+}
+
+func (r *Router) PUT(path string, handle Handle) {
+	r.Handle(http.MethodPut, path, handle)
+
+}
+
+func (r *Router) PATCH(path string, handle Handle) {
+	r.Handle(http.MethodPatch, path, handle)
+
+}
+
+func (r *Router) DELETE(path string, handle Handle) {
+	r.Handle(http.MethodDelete, path, handle)
+
+}
+
+func (r *Router) Handle(method, path string, handle Handle) {
+	varsCount := uint16(0)
+
+	if method == "" {
+		panic("method must not be empty")
+	}
+
+	if len(path) < 1 || path[0] != '/' {
+		panic("path must begin with '/' int path '" + path + "'")
+	}
+
+	if handle == nil {
+		panic("handle must not be nil")
+	}
+
+	if r.SaveMatchedRoutePath {
+		varsCount++
+		handle = r.saveMatchedRoutePath(path, handle)
+	}
+
+	// 因为 map 是一个指针类型，必须初始化才可以使用，这里做一个判断，
+	// 如果从来没有注册过路由，要先初始化 tress 属性的 map
+	if r.trees == nil {
+		r.trees = make(map[string]*node)
+	}
+
+	// 因为路由是一个基数树，全部是从根节点开始，如果第一次调用注册方法的时候根是不存在的，
+	// 就注册一个根节点， 这里是每一种请求方法是一个根节点，会存在多个树。
+	// GET_
+	//     \_
+	//     \_
+	//       \_
+	// POST_
+	//      \_
+	//      \_
+	root := r.trees[method]
+	// 根节点存在就直接调用 不存在就初始化一个
+	if root == nil {
+		root = new(node)
+		r.trees[method] = root
+		r.globalAllowed = r.allowed("*", "")
+	}
+	// 向 root 中添加路由，树的具体操作在后面单独去分析。
+	root.addRoute(path, handle)
+
+	if paramsCount := countParams(path); paramsCount+varsCount > r.maxParams {
+		r.maxParams = paramsCount + varsCount
+	}
+
+	if r.paramsPool.New == nil && r.maxParams > 0 {
+		r.paramsPool.New = func() interface{} {
+			ps := make(Params, 0, r.maxParams)
+			return &ps
+		}
+	}
+}
+
+func (r *Router) Handler(method, path string, handler http.Handler) {
+	r.Handle(method, path, func(w http.ResponseWriter, req *http.Request, p Params) {
+		if len(p) > 0 {
+			ctx := req.Context()
+			ctx = context.WithValue(ctx, ParamsKey, p)
+			req = req.WithContext(ctx)
+		}
+		handler.ServeHTTP(w, req)
+	})
+}
+
+func (r *Router) HandlerFunc(method, path string, handler http.HandlerFunc) {
+	r.Handler(method, path, handler)
+
+}
+
+func (r *Router) SarveFiles(path string, root http.FileSystem) {
+	if len(path) < 10 || path[len(path)-10:] != "/*filepath" {
+		panic("path must end with /*filepath int path '" + path + "'")
+	}
+
+	fileServer := http.FileServer(root)
+
+	r.GET(path, func(w http.ResponseWriter, req *http.Request, ps Params) {
+		req.URL.Path = ps.ByName("filepath")
+		fileServer.ServeHTTP(w, req)
+	})
+}
+
+func (r *Router) saveMatchedRoutePath(path string, handle Handle) Handle {
+	return func(w http.ResponseWriter, req *http.Request, p Params) {
+		if p == nil {
+			ps := r.getParams()
+			p = (*ps)[0:1]
+			p[0] = Param{
+				key: MatchedRoutePathParam, value: path,
+			}
+			handle(w, req, p)
+			r.putParams(ps)
+		} else {
+			p = append(p, Param{
+				key: MatchedRoutePathParam, value: path,
+			})
+			handle(w, req, p)
+		}
+	}
+}
+
+func (r *Router) Lookup(method, path string) (Handle, Params, bool) {
+	if root := r.trees[method]; root != nil {
+		handle, ps, tsr := root.getValue(path, r.getParams)
+		if handle == nil {
+			r.putParams(ps)
+			return nil, nil, tsr
+		}
+		if ps == nil {
+			return handle, nil, tsr
+		}
+		return handle, *ps, tsr
+	}
+	return nil, nil, false
+
 }
