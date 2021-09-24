@@ -38,7 +38,7 @@ func LoadJson(filename string, v interface{}) error {
 		return err
 	}
 	defer f.Close()
-	return json.NewDecoder(f).Decode(v)
+	return j son.NewDecoder(f).Decode(v)
 }
 
 func SaveJson(filename string, v interface{}) error {
